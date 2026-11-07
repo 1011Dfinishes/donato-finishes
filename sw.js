@@ -1,10 +1,10 @@
 // App files: network first (so updates show up), cached copy when offline.
 // Photos: cached after the first view (each photo has its own file name, so they never change).
-const SHELL = 'df-shell-v2', PHOTOS = 'df-photos-v1';
+const SHELL = 'df-shell-v3', PHOTOS = 'df-photos-v1';
 const FILES = ['./', 'index.html', 'app.js', 'sb.js', 'pdf.js', 'units.js', 'letterhead.png', 'letterhead.jpg', 'icon-180.png', 'icon-192.png', 'manifest.webmanifest'];
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(SHELL).then(c => c.addAll(FILES)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(SHELL).then(c => c.addAll(FILES.map(f => new Request(f, { cache: 'no-cache' })))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', e => {
@@ -27,7 +27,7 @@ self.addEventListener('fetch', e => {
     return;
   }
   if (url.origin !== self.location.origin) return;
-  e.respondWith(fetch(req).then(res => {
+  e.respondWith(fetch(req, { cache: 'no-cache' }).then(res => {          // always check GitHub for a newer copy
     if (res.ok) { const copy = res.clone(); caches.open(SHELL).then(c => c.put(req, copy)); }
     return res;
   }).catch(() => caches.match(req, { ignoreSearch: true }).then(r => r || caches.match('index.html'))));
