@@ -5,13 +5,16 @@ const ADDRESS = '1011 1 AVE';
 const APP_URL = 'https://fushekrujetown.github.io/donato-finishes/';
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const UNIT_NUMS = Object.keys(UNITS).map(Number).sort((a, b) => a - b);
+const FLOORS = [11, 12, 13];
 
 const sb = new Supa(SB_URL, SB_KEY);
-const S = { photos: {}, sigs: {}, project: { project_location: '', floor: '' }, editor: false, loaded: false, live: false, pending: {} };
+const S = { photos: {}, sigs: {}, project: { project_location: '' }, editor: false, loaded: false, live: false, pending: {} };
 const $ = (s, r = document) => r.querySelector(s);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const pkey = (u, k) => u + '|' + k;
+const pkey = (f, u, k) => f + '|' + u + '|' + k;
 const thumbOf = path => path.replace(/\.jpg$/, '_t.jpg');
+const medOf = path => path.replace(/\.jpg$/, '_m.jpg');
+const sizesOf = path => [path, thumbOf(path), medOf(path)];
 const slug = s => s.toLowerCase().replace(/#/g, '-').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 const two = n => String(n).padStart(2, '0');
 
@@ -32,11 +35,22 @@ function itemsFor(u) {
   });
 }
 
-function unitStats(u) {
+function unitStats(f, u) {
   const items = itemsFor(u);
-  const done = items.filter(it => S.photos[pkey(u, it.key)]).length;
-  const signed = !!(S.sigs[pkey(u, 'donato')] && S.sigs[pkey(u, 'ccm')]);
+  const done = items.filter(it => S.photos[pkey(f, u, it.key)]).length;
+  const signed = !!(S.sigs[pkey(f, u, 'donato')] && S.sigs[pkey(f, u, 'ccm')]);
   return { total: items.length, done, signed };
+}
+
+function floorStats(f) {
+  let total = 0, done = 0, signed = 0;
+  UNIT_NUMS.forEach(u => { const s = unitStats(f, u); total += s.total; done += s.done; signed += s.signed ? 1 : 0; });
+  return { total, done, signed };
+}
+
+function statusPill(done, signed, all) {
+  if (signed && all) return '<span class="pill ok">Signed</span>';
+  return done ? '<span class="pill prog">In progress</span>' : '<span class="pill todo">Not started</span>';
 }
 
 // ---------------------------------------------------------------- toasts & sheets
@@ -79,12 +93,12 @@ function busy(msg) {
 async function loadAll() {
   try {
     const [photos, sigs, proj] = await Promise.all([
-      sb.select('photos', 'select=unit,item_key,caption,path,taken_at,created_at&limit=5000'),
-      sb.select('signatures', 'select=unit,role,print_name,signed_on,path,created_at'),
-      sb.select('project', 'select=project_location,floor&id=eq.1')
+      sb.select('photos', 'select=floor,unit,item_key,caption,path,taken_at,created_at&limit=5000'),
+      sb.select('signatures', 'select=floor,unit,role,print_name,signed_on,path,created_at'),
+      sb.select('project', 'select=project_location&id=eq.1')
     ]);
-    S.photos = {}; photos.forEach(p => { S.photos[pkey(p.unit, p.item_key)] = p; });
-    S.sigs = {}; sigs.forEach(s => { S.sigs[pkey(s.unit, s.role)] = s; });
+    S.photos = {}; photos.forEach(p => { S.photos[pkey(p.floor, p.unit, p.item_key)] = p; });
+    S.sigs = {}; sigs.forEach(s => { S.sigs[pkey(s.floor, s.unit, s.role)] = s; });
     if (proj && proj[0]) S.project = proj[0];
     S.loaded = true;
     render();
@@ -103,21 +117,26 @@ async function checkEditor() {
 
 // ---------------------------------------------------------------- routing
 function route() {
-  const m = location.hash.match(/^#\/unit\/(\d+)(\/sign)?/);
-  if (m && UNITS[m[1]]) return { view: m[2] ? 'sign' : 'unit', unit: +m[1] };
+  const m = location.hash.match(/^#\/f\/(\d+)(?:\/u\/(\d+)(\/sign)?)?/);
+  if (m && FLOORS.includes(+m[1])) {
+    if (m[2] && UNITS[m[2]]) return { view: m[3] ? 'sign' : 'unit', floor: +m[1], unit: +m[2] };
+    return { view: 'floor', floor: +m[1] };
+  }
   return { view: 'home' };
 }
 window.addEventListener('hashchange', () => { render(); window.scrollTo(0, 0); });
 
 function render() {
   const r = route();
-  $('#tbRight').innerHTML = r.view === 'home'
-    ? '<span class="tb-sub">' + UNIT_NUMS.filter(u => unitStats(u).signed).length + ' of ' + UNIT_NUMS.length + ' units signed</span>'
-    : 'UNIT ' + r.unit;
+  if (r.view === 'home') {
+    const signed = FLOORS.reduce((t, f) => t + floorStats(f).signed, 0);
+    $('#tbRight').innerHTML = '<span class="tb-sub">' + signed + ' of ' + FLOORS.length * UNIT_NUMS.length + ' units signed</span>';
+  } else $('#tbRight').textContent = r.view === 'floor' ? 'FLOOR ' + r.floor : 'UNIT ' + r.unit;
   if (!S.loaded) return;
   if (r.view === 'home') renderHome();
-  else if (r.view === 'unit') renderUnit(r.unit);
-  else renderSign(r.unit);
+  else if (r.view === 'floor') renderFloor(r.floor);
+  else if (r.view === 'unit') renderUnit(r.floor, r.unit);
+  else renderSign(r.floor, r.unit);
 }
 
 function modeBar() {
@@ -136,17 +155,15 @@ function bindModeBar() {
 // ---------------------------------------------------------------- home
 function renderHome() {
   const pr = S.project;
-  const field = (label, key, val) => '<div class="fld"><b>' + label + '</b>' +
-    (S.editor ? '<input class="fin" data-k="' + key + '" value="' + esc(val) + '" autocomplete="off">' : '<span class="fv">' + esc(val) + '</span>') + '</div>';
   let h = modeBar();
   if (sb.session && !S.editor) h += '<div class="note">This email isn’t on the editor list, so you can view but not add photos or sign.</div>';
-  h += '<div class="flds">' + field('Project / Location:', 'project_location', pr.project_location) + field('Floor:', 'floor', pr.floor) + '</div>';
-  h += '<div class="ul">' + UNIT_NUMS.map(u => {
-    const st = unitStats(u);
-    const pill = st.signed ? '<span class="pill ok">Signed</span>' : st.done ? '<span class="pill prog">In progress</span>' : '<span class="pill todo">Not started</span>';
-    return '<a class="uc" href="#/unit/' + u + '"><div class="urw"><span>Unit ' + u + '</span>' + pill + '</div>' +
+  h += '<div class="flds"><div class="fld"><b>Project / Location:</b>' +
+    (S.editor ? '<input class="fin" data-k="project_location" value="' + esc(pr.project_location) + '" autocomplete="off">' : '<span class="fv">' + esc(pr.project_location) + '</span>') + '</div></div>';
+  h += '<div class="ul">' + FLOORS.map(f => {
+    const st = floorStats(f);
+    return '<a class="uc fc" href="#/f/' + f + '"><div class="urw"><span>Floor ' + f + '</span>' + statusPill(st.done, st.signed === UNIT_NUMS.length, true) + '</div>' +
       '<div class="bar"><i style="width:' + (100 * st.done / st.total).toFixed(1) + '%"></i></div>' +
-      '<div class="mt">' + st.done + ' of ' + st.total + ' photos</div></a>';
+      '<div class="mt">' + st.done + ' of ' + st.total + ' photos · ' + st.signed + ' of ' + UNIT_NUMS.length + ' units signed</div></a>';
   }).join('') + '</div>';
   $('#view').innerHTML = h;
   bindModeBar();
@@ -159,15 +176,29 @@ function renderHome() {
   });
 }
 
+function renderFloor(f) {
+  const fs = floorStats(f);
+  let h = '<div class="srow"><a class="bk" href="#/">‹ All floors</a><span>' + fs.signed + ' of ' + UNIT_NUMS.length + ' units signed</span></div>';
+  h += '<div class="ul">' + UNIT_NUMS.map(u => {
+    const st = unitStats(f, u);
+    return '<a class="uc" href="#/f/' + f + '/u/' + u + '"><div class="urw"><span>Unit ' + u + '</span>' + statusPill(st.done, st.signed, true) + '</div>' +
+      '<div class="bar"><i style="width:' + (100 * st.done / st.total).toFixed(1) + '%"></i></div>' +
+      '<div class="mt">' + st.done + ' of ' + st.total + ' photos</div></a>';
+  }).join('') + '</div>';
+  h += '<div class="actions"><button class="btn alt" id="expF">Export Floor ' + f + ' PDF</button></div>';
+  $('#view').innerHTML = h;
+  $('#expF').onclick = () => exportFloor(f);
+}
+
 // ---------------------------------------------------------------- unit grid
 const CAM_SVG = '<svg width="34" height="27" viewBox="0 0 38 30"><path d="M4 7h7l3-4h10l3 4h7a3 3 0 0 1 3 3v15a3 3 0 0 1-3 3H4a3 3 0 0 1-3-3V10a3 3 0 0 1 3-3z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="19" cy="17" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/></svg>';
 const CHK = '<svg width="12" height="12" viewBox="0 0 12 12"><path d="M2.2 6.3l2.4 2.4 5.2-5.4" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
-function renderUnit(u) {
-  const items = itemsFor(u), st = unitStats(u);
-  let h = '<div class="srow"><a class="bk" href="#/">‹ All units</a><span class="' + (st.done === st.total ? 'okc' : '') + '">' + st.done + ' of ' + st.total + ' photos' + (st.done === st.total ? ' ✓' : '') + '</span></div>';
+function renderUnit(f, u) {
+  const items = itemsFor(u), st = unitStats(f, u);
+  let h = '<div class="srow"><a class="bk" href="#/f/' + f + '">‹ Floor ' + f + '</a><span class="' + (st.done === st.total ? 'okc' : '') + '">' + st.done + ' of ' + st.total + ' photos' + (st.done === st.total ? ' ✓' : '') + '</span></div>';
   h += '<div class="grid">' + items.map((it, i) => {
-    const k = pkey(u, it.key), row = S.photos[k], pend = S.pending[k];
+    const k = pkey(f, u, it.key), row = S.photos[k], pend = S.pending[k];
     let inner;
     if (pend) inner = '<img src="' + pend.url + '" alt=""><span class="badge wait">' + (pend.state === 'queued' ? 'Waiting for signal' : 'Uploading…') + '</span>';
     else if (row) inner = '<img src="' + sb.publicUrl(thumbOf(row.path)) + '" alt="" loading="lazy" onerror="this.onerror=null;this.src=\'' + sb.publicUrl(row.path) + '\'"><span class="chk">' + CHK + '</span>';
@@ -177,52 +208,52 @@ function renderUnit(u) {
   h += '<div class="actions">' + (S.editor ? '<button class="btn" id="goSign">Sign off Unit ' + u + '</button>' : '<button class="btn alt" id="goSign">Signatures</button>') +
     '<button class="btn alt" id="exp">Export Unit ' + u + ' PDF</button></div>';
   $('#view').innerHTML = h;
-  document.querySelectorAll('.tl').forEach(el => el.onclick = () => tileTap(u, items[+el.dataset.i]));
+  document.querySelectorAll('.tl').forEach(el => el.onclick = () => tileTap(f, u, items[+el.dataset.i]));
   $('#goSign').onclick = async () => {
     const left = st.total - st.done;
     if (S.editor && left > 0) {
       const ok = await choose(left + (left === 1 ? ' box is' : ' boxes are') + ' still empty. Sign anyway?', [{ label: 'Go to signatures', value: true }]);
       if (!ok) return;
     }
-    location.hash = '#/unit/' + u + '/sign';
+    location.hash = '#/f/' + f + '/u/' + u + '/sign';
   };
-  $('#exp').onclick = () => exportUnit(u);
+  $('#exp').onclick = () => exportUnit(f, u);
 }
 
-async function tileTap(u, it) {
-  const k = pkey(u, it.key), row = S.photos[k];
+async function tileTap(f, u, it) {
+  const k = pkey(f, u, it.key), row = S.photos[k];
   if (S.pending[k]) { toast(S.pending[k].state === 'queued' ? 'Saved on this phone. It uploads when you have signal.' : 'Uploading…'); return; }
-  if (row) { viewPhoto(u, it, row); return; }
+  if (row) { viewPhoto(f, u, it, row); return; }
   if (!S.editor) return;
-  addPhoto(u, it);
+  addPhoto(f, u, it);
 }
 
-async function addPhoto(u, it) {
+async function addPhoto(f, u, it) {
   const how = await choose(it.caption, [{ label: 'Take Photo', value: 'cam' }, { label: 'Choose from Photos', value: 'lib' }]);
   if (!how) return;
   const inp = $(how === 'cam' ? '#camIn' : '#libIn');
   inp.value = '';
-  inp.onchange = () => { const f = inp.files && inp.files[0]; if (f) handleFile(u, it, f, how); };
+  inp.onchange = () => { const file = inp.files && inp.files[0]; if (file) handleFile(f, u, it, file, how); };
   inp.click();
 }
 
-function viewPhoto(u, it, row) {
+function viewPhoto(f, u, it, row) {
   const d = new Date(row.taken_at);
   openSheet('<div class="pv-wrap"><img src="' + sb.publicUrl(row.path) + '" alt=""></div>' +
-    '<div class="pv-cap">' + esc(it.caption) + '</div><div class="pv-meta">Unit ' + u + ' · taken ' + esc(fmtStamp(d)) + '</div>' +
+    '<div class="pv-cap">' + esc(it.caption) + '</div><div class="pv-meta">Floor ' + f + ', Unit ' + u + ' · taken ' + esc(fmtStamp(d)) + '</div>' +
     (S.editor ? '<button class="sh-btn" id="rep">Replace photo</button><button class="sh-btn danger" id="del">Delete photo</button>' : '') +
     '<button class="sh-btn cancel" id="cls">Close</button>', (el, close) => {
     $('#cls', el).onclick = close;
     if (!S.editor) return;
-    $('#rep', el).onclick = () => { close(); addPhoto(u, it); };
+    $('#rep', el).onclick = () => { close(); addPhoto(f, u, it); };
     $('#del', el).onclick = async () => {
       close();
       const ok = await choose('Delete the photo for ' + it.caption + '?', [{ label: 'Delete photo', value: true, style: 'danger' }]);
       if (!ok) return;
       try {
-        await sb.remove('photos', 'unit=eq.' + u + '&item_key=eq.' + encodeURIComponent(it.key));
-        delete S.photos[pkey(u, it.key)];
-        sb.removeFiles([row.path, thumbOf(row.path)]).catch(() => {});
+        await sb.remove('photos', 'floor=eq.' + f + '&unit=eq.' + u + '&item_key=eq.' + encodeURIComponent(it.key));
+        delete S.photos[pkey(f, u, it.key)];
+        sb.removeFiles(sizesOf(row.path)).catch(() => {});
         render(); toast('Photo deleted');
       } catch (e) { toast('Couldn’t delete: ' + e.message); }
     };
@@ -285,10 +316,13 @@ async function stampPhoto(img, date) {
   x.fillText(fmtStamp(date), 46, H - 120);
   x.fillText(ADDRESS, 46, H - 50);
   const main = await toBlob(c, 'image/jpeg', 0.86);
+  const m = document.createElement('canvas'); m.width = 720; m.height = 960;
+  m.getContext('2d').drawImage(c, 0, 0, 720, 960);
+  const med = await toBlob(m, 'image/jpeg', 0.8);
   const t = document.createElement('canvas'); t.width = 360; t.height = 480;
   t.getContext('2d').drawImage(c, 0, 0, 360, 480);
   const thumb = await toBlob(t, 'image/jpeg', 0.75);
-  return { main, thumb };
+  return { main, med, thumb };
 }
 
 function askDate(fallback) {
@@ -302,7 +336,7 @@ function askDate(fallback) {
   });
 }
 
-async function handleFile(u, it, file, how) {
+async function handleFile(f, u, it, file, how) {
   let date = null;
   try { date = parseExifDate(await file.slice(0, 256 * 1024).arrayBuffer()); } catch (e) { date = null; }
   if (how === 'cam') date = date || new Date();
@@ -315,7 +349,7 @@ async function handleFile(u, it, file, how) {
     done();
   } catch (e) { busy(false); toast(e.message || 'That photo couldn’t be opened.'); return; }
   busy(false);
-  const rec = { id: pkey(u, it.key), unit: u, key: it.key, caption: it.caption, taken: date.toISOString(), main: out.main, thumb: out.thumb };
+  const rec = { id: pkey(f, u, it.key), floor: f, unit: u, key: it.key, caption: it.caption, taken: date.toISOString(), main: out.main, med: out.med, thumb: out.thumb };
   setPending(rec, 'uploading');
   render();
   try {
@@ -347,14 +381,15 @@ function clearPending(id) {
 }
 
 async function uploadRec(rec) {
-  const base = 'u' + rec.unit + '/' + slug(rec.key) + '-' + Date.now();
+  const base = 'f' + rec.floor + '/u' + rec.unit + '/' + slug(rec.key) + '-' + Date.now();
   await sb.upload(base + '.jpg', rec.main, 'image/jpeg');
+  if (rec.med) await sb.upload(base + '_m.jpg', rec.med, 'image/jpeg');
   await sb.upload(base + '_t.jpg', rec.thumb, 'image/jpeg');
   const old = S.photos[rec.id];
-  const rows = await sb.upsert('photos', [{ unit: rec.unit, item_key: rec.key, caption: rec.caption, path: base + '.jpg', taken_at: rec.taken }], 'unit,item_key');
+  const rows = await sb.upsert('photos', [{ floor: rec.floor, unit: rec.unit, item_key: rec.key, caption: rec.caption, path: base + '.jpg', taken_at: rec.taken }], 'floor,unit,item_key');
   if (rows && rows[0]) S.photos[rec.id] = rows[0];
   await Queue.del(rec.id).catch(() => {});
-  if (old && old.path !== base + '.jpg') sb.removeFiles([old.path, thumbOf(old.path)]).catch(() => {});
+  if (old && old.path !== base + '.jpg') sb.removeFiles(sizesOf(old.path)).catch(() => {});
 }
 
 // photos waiting for signal, kept on the phone (IndexedDB)
@@ -398,15 +433,16 @@ async function flushQueue() {
 }
 
 // ---------------------------------------------------------------- signatures
-function renderSign(u) {
-  const st = unitStats(u);
-  let h = '<div class="srow"><a class="bk" href="#/unit/' + u + '">‹ Back to photos</a><span class="' + (st.done === st.total ? 'okc' : '') + '">' + st.done + ' of ' + st.total + ' photos' + (st.done === st.total ? ' ✓' : '') + '</span></div>';
+function renderSign(f, u) {
+  const st = unitStats(f, u);
+  let h = '<div class="srow"><a class="bk" href="#/f/' + f + '/u/' + u + '">‹ Back to photos</a><span class="' + (st.done === st.total ? 'okc' : '') + '">' + st.done + ' of ' + st.total + ' photos' + (st.done === st.total ? ' ✓' : '') + '</span></div>';
   h += '<div class="sec">SIGNATURES</div>';
-  const editing = S.editor && (S.redo === u || !(S.sigs[pkey(u, 'donato')] && S.sigs[pkey(u, 'ccm')]));
+  const rk = f + '-' + u;
+  const editing = S.editor && (S.redo === rk || !(S.sigs[pkey(f, u, 'donato')] && S.sigs[pkey(f, u, 'ccm')]));
   for (const [role, who] of [['donato', 'Donato Representative'], ['ccm', 'CCM Representative']]) {
-    const s = S.sigs[pkey(u, role)];
+    const s = S.sigs[pkey(f, u, role)];
     h += '<div class="sig"><div class="sgl">' + who + '</div>';
-    if (editing && (!s || S.redo === u)) {
+    if (editing && (!s || S.redo === rk)) {
       h += '<div class="pad"><canvas data-role="' + role + '"></canvas><span class="hn">Sign here with your finger</span><button class="clr" data-role="' + role + '">Clear</button></div>' +
         '<div class="fr"><label class="f"><input class="nm" data-role="' + role + '" placeholder=" " autocomplete="name" value="' + esc(s ? s.print_name : '') + '"><span>Print Name</span></label>' +
         '<label class="f dte"><input type="date" class="dd" data-role="' + role + '" value="' + todayISO() + '"><span>Date</span></label></div>';
@@ -426,9 +462,9 @@ function renderSign(u) {
   $('#view').innerHTML = h;
   document.querySelectorAll('.pad canvas').forEach(setupPad);
   document.querySelectorAll('.clr').forEach(b => b.onclick = () => { const c = $('canvas[data-role="' + b.dataset.role + '"]'); c.clear(); });
-  if ($('#saveSig')) $('#saveSig').onclick = () => saveSignatures(u);
-  if ($('#redo')) $('#redo').onclick = () => { S.redo = u; render(); };
-  $('#exp').onclick = () => exportUnit(u);
+  if ($('#saveSig')) $('#saveSig').onclick = () => saveSignatures(f, u);
+  if ($('#redo')) $('#redo').onclick = () => { S.redo = rk; render(); };
+  $('#exp').onclick = () => exportUnit(f, u);
 }
 
 function setupPad(c) {
@@ -464,7 +500,7 @@ function trimCanvas(c) {
   return o;
 }
 
-async function saveSignatures(u) {
+async function saveSignatures(f, u) {
   const jobs = [];
   for (const role of ['donato', 'ccm']) {
     const c = $('canvas[data-role="' + role + '"]');
@@ -478,16 +514,16 @@ async function saveSignatures(u) {
   try {
     for (const j of jobs) {
       const blob = await toBlob(trimCanvas(j.c), 'image/png');
-      const path = 'sig/u' + u + '/' + j.role + '-' + Date.now() + '.png';
+      const path = 'sig/f' + f + '/u' + u + '/' + j.role + '-' + Date.now() + '.png';
       await sb.upload(path, blob, 'image/png');
-      const old = S.sigs[pkey(u, j.role)];
-      const rows = await sb.upsert('signatures', [{ unit: u, role: j.role, print_name: j.name, signed_on: j.date, path }], 'unit,role');
-      if (rows && rows[0]) S.sigs[pkey(u, j.role)] = rows[0];
+      const old = S.sigs[pkey(f, u, j.role)];
+      const rows = await sb.upsert('signatures', [{ floor: f, unit: u, role: j.role, print_name: j.name, signed_on: j.date, path }], 'floor,unit,role');
+      if (rows && rows[0]) S.sigs[pkey(f, u, j.role)] = rows[0];
       if (old && old.path !== path) sb.removeFiles([old.path]).catch(() => {});
     }
     S.redo = null;
     busy(false); render();
-    toast(unitStats(u).signed ? '✓ Unit ' + u + ' signed' : '✓ Signature saved');
+    toast(unitStats(f, u).signed ? '✓ Unit ' + u + ' signed' : '✓ Signature saved');
   } catch (e) {
     busy(false);
     toast(isNetworkError(e) ? 'No signal. Try saving again when you have signal.' : 'Couldn’t save: ' + e.message, 4200);
@@ -514,37 +550,67 @@ async function asJpeg(blob, maxW, maxH, white) {
   return { jpeg: new Uint8Array(await b.arrayBuffer()), w: c.width, h: c.height };
 }
 
-async function exportUnit(u) {
-  const items = itemsFor(u);
+async function photoJpeg(row) {
+  let blob;
+  try { blob = await fetchBytes(sb.publicUrl(medOf(row.path))); } catch (e) { blob = await fetchBytes(sb.publicUrl(row.path)); }
+  return asJpeg(blob, 720, 960, false);
+}
+
+async function unitData(f, u, progress) {
+  const items = itemsFor(u), photos = [];
+  for (let i = 0; i < items.length; i++) {
+    const row = S.photos[pkey(f, u, items[i].key)];
+    photos.push(row ? await photoJpeg(row) : null);
+    if (progress) progress();
+  }
+  const sigs = {};
+  for (const role of ['donato', 'ccm']) {
+    const s = S.sigs[pkey(f, u, role)];
+    if (!s) continue;
+    const j = await asJpeg(await fetchBytes(sb.publicUrl(s.path)), 1200, 400, true);
+    sigs[role] = { name: s.print_name, date: fmtISODay(s.signed_on), jpeg: j.jpeg, w: j.w, h: j.h };
+  }
+  return { unit: u, label: 'FLOOR ' + f + ' \u00b7 UNIT ' + u, items, photos, sigs };
+}
+
+function pdfReady(title, name, bytes) {
+  const file = new File([bytes], name, { type: 'application/pdf' });
+  const url = URL.createObjectURL(file);
+  openSheet('<div class="sh-title">' + esc(title) + ' is ready</div>' +
+    (navigator.canShare && navigator.canShare({ files: [file] }) ? '<button class="sh-btn strong" id="shr">Share or save</button>' : '') +
+    '<a class="sh-btn" href="' + url + '" download="' + esc(name) + '" target="_blank" rel="noopener">Open PDF</a>' +
+    '<button class="sh-btn cancel" id="cls">Close</button>', (el, close) => {
+    $('#cls', el).onclick = () => { close(); setTimeout(() => URL.revokeObjectURL(url), 60000); };
+    const b = $('#shr', el);
+    if (b) b.onclick = async () => { try { await navigator.share({ files: [file], title: name }); } catch (e) { /* cancelled */ } };
+  });
+}
+
+async function exportUnit(f, u) {
   try {
     busy('Building PDF…');
     const lh = new Uint8Array(await (await fetchBytes('letterhead.jpg')).arrayBuffer());
-    const photos = [];
-    for (let i = 0; i < items.length; i++) {
-      busy('Building PDF… ' + (i + 1) + ' of ' + items.length);
-      const row = S.photos[pkey(u, items[i].key)];
-      photos.push(row ? await asJpeg(await fetchBytes(sb.publicUrl(row.path)), 900, 1200, false) : null);
-    }
-    const sigs = {};
-    for (const role of ['donato', 'ccm']) {
-      const s = S.sigs[pkey(u, role)];
-      if (!s) continue;
-      const j = await asJpeg(await fetchBytes(sb.publicUrl(s.path)), 1200, 400, true);
-      sigs[role] = { name: s.print_name, date: fmtISODay(s.signed_on), jpeg: j.jpeg, w: j.w, h: j.h };
-    }
-    const bytes = buildUnitPdf(u, items, photos, sigs, lh);
+    const n = itemsFor(u).length; let k = 0;
+    const data = await unitData(f, u, () => busy('Building PDF… ' + (++k) + ' of ' + n));
+    const bytes = buildUnitPdf(data, lh, 'Plumbing Finishes - Floor ' + f + ', Unit ' + u);
     busy(false);
-    const name = 'Unit ' + u + ' - Plumbing Finishes.pdf';
-    const file = new File([bytes], name, { type: 'application/pdf' });
-    const url = URL.createObjectURL(file);
-    openSheet('<div class="sh-title">Unit ' + u + ' PDF is ready</div>' +
-      (navigator.canShare && navigator.canShare({ files: [file] }) ? '<button class="sh-btn strong" id="shr">Share or save</button>' : '') +
-      '<a class="sh-btn" href="' + url + '" download="' + esc(name) + '" target="_blank" rel="noopener">Open PDF</a>' +
-      '<button class="sh-btn cancel" id="cls">Close</button>', (el, close) => {
-      $('#cls', el).onclick = () => { close(); setTimeout(() => URL.revokeObjectURL(url), 60000); };
-      const b = $('#shr', el);
-      if (b) b.onclick = async () => { try { await navigator.share({ files: [file], title: name }); } catch (e) { /* cancelled */ } };
-    });
+    pdfReady('Floor ' + f + ', Unit ' + u + ' PDF', 'Floor ' + f + ' Unit ' + u + ' - Plumbing Finishes.pdf', bytes);
+  } catch (e) {
+    busy(false);
+    toast('Couldn’t build the PDF. Check your signal and try again.', 4200);
+  }
+}
+
+async function exportFloor(f) {
+  try {
+    busy('Building PDF…');
+    const lh = new Uint8Array(await (await fetchBytes('letterhead.jpg')).arrayBuffer());
+    const total = floorStats(f).total; let k = 0;
+    const units = UNIT_NUMS.map(u => ({ unit: u, items: itemsFor(u) }));
+    const bytes = await buildFloorPdf({ floor: f, project: S.project.project_location || '', units }, lh,
+      'Plumbing Finishes - Floor ' + f, i => unitData(f, units[i].unit, () => busy('Building PDF… photo ' + (++k) + ' of ' + total)));
+    busy(false);
+    pdfReady('Floor ' + f + ' PDF', 'Floor ' + f + ' - Plumbing Finishes.pdf', bytes);
   } catch (e) {
     busy(false);
     toast('Couldn’t build the PDF. Check your signal and try again.', 4200);
