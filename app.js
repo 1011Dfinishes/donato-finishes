@@ -142,21 +142,18 @@ function render() {
 function modeBar() {
   const live = '<span class="live ' + (S.live ? 'up' : '') + '"><i></i>' + (S.live ? 'Live' : 'Connecting') + '</span>';
   if (S.editor) return '<div class="mbar"><span class="pill pe">✓ Editor</span>' + live + '<button class="link" id="signOut">Sign out</button></div>';
-  if (sb.session) return '<div class="mbar"><span class="pill pv">View only</span>' + live + '<button class="link" id="signOut">Sign out</button></div>';
-  return '<div class="mbar"><span class="pill pv">View only</span>' + live + '<button class="link" id="signIn">Editor sign in</button></div>';
+  return '<div class="mbar"><span class="pill pv">View only</span>' + live + '</div>';     // guests: no sign-in link here
 }
 
 function bindModeBar() {
-  const a = $('#signIn'), b = $('#signOut');
-  if (a) a.onclick = signInSheet;
-  if (b) b.onclick = async () => { await sb.signOut(); S.editor = false; live.restart(); render(); toast('Signed out'); };
+  const b = $('#signOut');
+  if (b) b.onclick = async () => { await sb.signOut(); S.editor = false; live.restart(); await exitToStart(); };
 }
 
 // ---------------------------------------------------------------- home
 function renderHome() {
   const pr = S.project;
   let h = modeBar();
-  if (sb.session && !S.editor) h += '<div class="note">This email isn’t on the editor list, so you can view but not add photos or sign.</div>';
   h += '<div class="flds"><div class="fld"><b>Project / Location:</b>' +
     (S.editor ? '<input class="fin" data-k="project_location" value="' + esc(pr.project_location) + '" autocomplete="off">' : '<span class="fv">' + esc(pr.project_location) + '</span>') + '</div></div>';
   h += '<div class="ul">' + FLOORS.map(f => {
@@ -617,48 +614,119 @@ async function exportFloor(f) {
   }
 }
 
-// ---------------------------------------------------------------- sign in
-function signInSheet() {
-  let mode = 'in';
-  const draw = (el, close) => {
-    el.innerHTML = '<div class="sh-title big">' + (mode === 'in' ? 'Editor sign in' : 'Create your editor password') + '</div>' +
-      '<div class="sh-text">' + (mode === 'in' ? 'Only approved editors can add photos and sign. Anyone with the link can still view.'
-        : 'Use the email that’s on the editor list. We’ll email you a link to confirm it.') + '</div>' +
-      '<label class="lab">Email</label><input class="inp" id="em" type="email" autocomplete="email" autocapitalize="none" placeholder="you@company.com">' +
-      '<label class="lab">Password</label><input class="inp" id="pw" type="password" autocomplete="' + (mode === 'in' ? 'current-password' : 'new-password') + '" placeholder="' + (mode === 'in' ? 'Password' : 'At least 6 characters') + '">' +
-      '<button class="sh-btn strong" id="go">' + (mode === 'in' ? 'Sign in' : 'Create password') + '</button>' +
-      '<button class="sh-btn link2" id="sw">' + (mode === 'in' ? 'First time? Create your password' : 'I already have a password') + '</button>' +
-      '<div class="sh-err" id="err"></div>';
-    $('#sw', el).onclick = () => { mode = mode === 'in' ? 'up' : 'in'; draw(el, close); };
-    $('#go', el).onclick = async () => {
-      const em = $('#em', el).value.trim(), pw = $('#pw', el).value, err = $('#err', el);
-      if (!em || !pw) { err.textContent = 'Enter your email and password.'; return; }
-      $('#go', el).disabled = true; err.textContent = '';
-      try {
-        if (mode === 'in') {
-          await sb.signIn(em, pw);
-        } else {
-          const now = await sb.signUp(em, pw, APP_URL);
-          if (!now) { el.innerHTML = '<div class="sh-title big">Check your email</div><div class="sh-text">We sent a confirmation link to ' + esc(em) + '. Tap it, then come back here and sign in with your new password.</div><button class="sh-btn strong" id="ok">OK</button>'; $('#ok', el).onclick = close; return; }
-        }
-        await checkEditor(); close(); live.restart(); flushQueue(); render();
-        toast(S.editor ? '✓ Signed in as editor' : 'Signed in. This email isn’t on the editor list.', 3600);
-      } catch (e) {
-        $('#go', el).disabled = false;
-        err.textContent = /invalid login/i.test(e.message) ? 'Wrong email or password.' : /not confirmed/i.test(e.message) ? 'Confirm your email first: tap the link we sent you.' : e.message;
-      }
-    };
-  };
-  openSheet('', draw);
+// ---------------------------------------------------------------- start screen
+const live = new Live(sb, ['photos', 'signatures', 'project'], () => scheduleReload(), up => { S.live = up; if (route().view === 'home') { const l = $('.live'); if (l) { l.classList.toggle('up', up); l.lastChild.textContent = up ? 'Live' : 'Connecting'; } } });
+const EASE = 'cubic-bezier(.65,0,.35,1)';
+const reduceMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+const box = el => el.getBoundingClientRect();
+const brandPairs = () => [[$('.st-lh'), $('header .lh'), 'scale'], [$('.st-dbl'), $('header .dbl'), 'scaleX'], [$('.st-ttl'), $('header .tb .l'), 'scale']];
+let startMode = 'in';
+
+function startChoices() {
+  const st = $('#start');
+  st.classList.remove('form', 'busy');
+  $('.st-brand').style.transform = '';
+  $('#stErr').textContent = '';
 }
 
-// ---------------------------------------------------------------- start
-const live = new Live(sb, ['photos', 'signatures', 'project'], () => scheduleReload(), up => { S.live = up; if (route().view === 'home') { const l = $('.live'); if (l) { l.classList.toggle('up', up); l.lastChild.textContent = up ? 'Live' : 'Connecting'; } } });
+function startForm() {
+  const st = $('#start');
+  startMode = 'in'; drawForm();
+  st.classList.add('form');
+  requestAnimationFrame(() => {          // lift the logo so it clears the form
+    const b = box($('.st-brand .st-flr')), f = box($('#stForm'));
+    const lift = Math.max(0, b.bottom + 28 - f.top);
+    $('.st-brand').style.transform = lift ? 'translateY(' + (-lift) + 'px)' : '';
+  });
+}
+
+function drawForm() {
+  $('#stFtitle').textContent = startMode === 'in' ? 'Editor sign in' : 'Create your editor password';
+  $('#stPw').placeholder = startMode === 'in' ? 'Password' : 'At least 6 characters';
+  $('#stPw').autocomplete = startMode === 'in' ? 'current-password' : 'new-password';
+  $('#stGo .lbl').textContent = startMode === 'in' ? 'Sign in' : 'Create password';
+  $('#stMode').textContent = startMode === 'in' ? 'First time? Create your password' : 'I already have a password';
+  $('#stErr').textContent = '';
+}
+
+async function submitForm(e) {
+  e.preventDefault();
+  const em = $('#stEm').value.trim(), pw = $('#stPw').value, err = $('#stErr'), st = $('#start');
+  if (!em || !pw) { err.textContent = 'Enter your email and password.'; return; }
+  st.classList.add('busy'); err.textContent = '';
+  try {
+    if (startMode === 'in') await sb.signIn(em, pw);
+    else {
+      const now = await sb.signUp(em, pw, APP_URL);
+      if (!now) { st.classList.remove('busy'); err.textContent = ''; $('#stNotice').textContent = 'We sent a confirmation link to ' + em + '. Tap it, then come back here and sign in.'; startMode = 'in'; drawForm(); return; }
+    }
+    await checkEditor();
+    if (!S.editor) { await sb.signOut(); st.classList.remove('busy'); err.textContent = 'This email isn’t on the editor list.'; return; }
+    $('#stPw').value = '';
+    live.restart(); flushQueue();
+    await enterApp();
+    toast('✓ Signed in as editor');
+  } catch (ex) {
+    st.classList.remove('busy');
+    err.textContent = /invalid login/i.test(ex.message) ? 'Wrong email or password.' : /not confirmed/i.test(ex.message) ? 'Confirm your email first: tap the link we sent you.' : isNetworkError(ex) ? 'No signal. Try again when you have signal.' : ex.message;
+  }
+}
+
+// Slide from the start screen into the app: the letterhead, rule and title glide into the header,
+// then the page content rises in.
+async function enterApp() {
+  const st = $('#start');
+  if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+  window.scrollTo(0, 0);
+  render();
+  const D = reduceMotion() ? 0 : 640;
+  st.classList.add('leaving');
+  const anims = brandPairs().map(([src, dst, kind]) => {
+    const a = box(src), b = box(dst), s = b.width / a.width;
+    const to = 'translate(' + (b.left - a.left) + 'px,' + (b.top - a.top) + 'px) ' + (kind === 'scaleX' ? 'scaleX(' + s + ')' : 'scale(' + s + ')');
+    return src.animate([{ transform: 'none' }, { transform: to }], { duration: D, delay: D ? 140 : 0, easing: EASE, fill: 'forwards' });
+  });
+  await Promise.all(anims.map(x => x.finished.catch(() => {})));
+  document.body.classList.add('arrive');
+  st.classList.add('seen');
+  st.classList.remove('on', 'leaving', 'busy');
+  anims.forEach(x => x.cancel());
+  startChoices();
+  setTimeout(() => document.body.classList.remove('arrive'), 1000);
+}
+
+// The reverse, after signing out.
+async function exitToStart() {
+  const st = $('#start');
+  window.scrollTo(0, 0);
+  startChoices();
+  st.classList.add('on', 'returning');
+  const D = reduceMotion() ? 0 : 600;
+  const anims = brandPairs().map(([src, dst, kind]) => {
+    const a = box(src), b = box(dst), s = b.width / a.width;
+    const from = 'translate(' + (b.left - a.left) + 'px,' + (b.top - a.top) + 'px) ' + (kind === 'scaleX' ? 'scaleX(' + s + ')' : 'scale(' + s + ')');
+    return src.animate([{ transform: from }, { transform: 'none' }], { duration: D, easing: EASE, fill: 'backwards' });
+  });
+  await Promise.all(anims.map(x => x.finished.catch(() => {})));
+  st.classList.remove('returning');
+}
 
 async function start() {
+  const st = $('#start');
+  $('#stEditor').onclick = startForm;
+  $('#stGuest').onclick = () => { S.guest = true; enterApp(); };
+  $('#stAsGuest').onclick = () => { S.guest = true; enterApp(); };
+  $('#stMode').onclick = () => { startMode = startMode === 'in' ? 'up' : 'in'; drawForm(); };
+  $('#stForm').onsubmit = submitForm;
   render();
-  if (sb.session) { await sb.fresh(); await checkEditor(); }
-  await loadAll();
+  loadAll().then(() => { $('.st-addr').textContent = S.project.project_location || '1011 1st AVE'; });
+  if (sb.session) {
+    st.classList.add('checking');
+    await sb.fresh(); await checkEditor();
+    if (!S.editor && sb.session) await sb.signOut();
+    st.classList.remove('checking');
+  }
+  if (S.editor) { await new Promise(r => setTimeout(r, reduceMotion() ? 0 : 650)); await enterApp(); }
   live.start();
   try { (await Queue.all()).forEach(r => setPending(r, 'queued')); render(); } catch (e) { /* no storage */ }
   flushQueue();

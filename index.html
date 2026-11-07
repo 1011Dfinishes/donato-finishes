@@ -118,6 +118,56 @@ header{position:sticky;top:0;background:#fff;z-index:5;margin:0 -18px;padding:ca
 #a2hs{display:none;position:fixed;left:12px;right:12px;bottom:calc(env(safe-area-inset-bottom) + 12px);z-index:30;background:#1f2a36;color:#fff;border-radius:14px;padding:13px 14px;font:14px/1.4 var(--sans);box-shadow:0 8px 24px rgba(0,0,0,.25)}
 #a2hs.on{display:flex;gap:12px;align-items:center}
 #a2hs button{margin-left:auto;background:rgba(255,255,255,.16);border:0;color:#fff;font:600 13px var(--sans);padding:7px 11px;border-radius:10px}
+
+/* start screen */
+#start{position:fixed;inset:0;z-index:35;background:#fff;display:none;flex-direction:column;padding:calc(env(safe-area-inset-top) + 16px) 24px calc(env(safe-area-inset-bottom) + 20px)}
+#start.on{display:flex}
+.st-brand{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;transition:transform .5s cubic-bezier(.65,0,.35,1);padding-bottom:4vh}
+.st-lh{display:block;width:min(320px,82vw);height:auto;transform-origin:0 0;animation:stIn .7s ease-out both}
+.st-dbl{width:min(320px,82vw);height:5.4px;border-top:2.2px solid #222;border-bottom:.9px solid #222;margin-top:12px;transform-origin:0 0;animation:stRule .8s .25s cubic-bezier(.65,0,.35,1) both}
+.st-ttl{font:700 21px var(--serif);letter-spacing:1.2px;margin-top:16px;transform-origin:0 0;white-space:nowrap;animation:stIn .7s .45s ease-out both}
+.st-addr{font:500 15px var(--sans);color:#5a6068;margin-top:10px;animation:stIn .7s .55s ease-out both}
+.st-flr{font:600 11.5px var(--sans);letter-spacing:2.4px;color:var(--navy);margin-top:10px;animation:stIn .7s .62s ease-out both}
+.st-bottom{position:relative;width:100%;max-width:420px;margin:0 auto}
+.st-choices{animation:stUp .6s .7s ease-out both;transition:opacity .25s,transform .3s}
+.st-btn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;height:54px;border-radius:13px;border:0;background:var(--navy);color:#fff;font:600 17px var(--sans);margin-top:12px}
+.st-btn.alt{background:#fff;color:var(--navy);border:1.6px solid var(--navy)}
+.st-btn:active{opacity:.85}
+.st-note{text-align:center;font:12.5px/1.4 var(--sans);color:#8a9098;margin-top:14px}
+#stForm{display:none}
+#start.form .st-choices{display:none}
+#start.form #stForm{display:block;animation:stUp .45s ease-out both}
+#stForm .st-ftitle{font:700 20px var(--serif);margin-bottom:12px}
+#stForm label{display:block;font:600 12.5px var(--sans);color:#3d434a;margin:10px 0 6px 2px}
+#stForm input{display:block;width:100%;height:48px;border:1px solid #c9cdd2;border-radius:10px;font:16px var(--sans);padding:0 13px;background:#fff;color:var(--ink)}
+#stForm input:focus{outline:none;border-color:var(--navy);box-shadow:0 0 0 3px rgba(31,78,121,.15)}
+#stForm .st-btn{margin-top:18px}
+.st-btn .spin{display:none;width:18px;height:18px;border:2.4px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;animation:sp .8s linear infinite}
+#start.busy .st-btn .spin{display:block}
+.st-err{color:#c62828;font:13.5px var(--sans);text-align:center;min-height:18px;margin-top:10px}
+#stNotice{color:var(--green);font:13.5px/1.4 var(--sans);text-align:center}
+.st-link{display:block;width:100%;background:none;border:0;font:600 14.5px var(--sans);color:var(--navy);padding:9px 0}
+#start.checking .st-choices{visibility:hidden}
+#start.leaving .st-bottom,#start.leaving .st-addr,#start.leaving .st-flr{animation:stOut .26s ease-in both}
+#start.leaving .st-lh,#start.leaving .st-dbl,#start.leaving .st-ttl{animation:none}
+#start.seen .st-lh,#start.seen .st-dbl,#start.seen .st-ttl,#start.seen .st-addr,#start.seen .st-flr,#start.seen .st-choices{animation:none}
+#start.seen.returning .st-addr,#start.seen.returning .st-flr,#start.seen.returning .st-choices{animation:stIn .5s .35s ease-out both}
+#start.returning{animation:stBg .35s ease-out both}
+@keyframes stOut{from{opacity:1;transform:none}to{opacity:0;transform:translateY(16px)}}
+@keyframes stIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+@keyframes stUp{from{opacity:0;transform:translateY(22px)}to{opacity:1;transform:none}}
+@keyframes stRule{from{clip-path:inset(0 50% 0 50%)}to{clip-path:inset(0 0 0 0)}}
+@keyframes stBg{from{background-color:rgba(255,255,255,0)}to{background-color:#fff}}
+body.arrive #view>*{animation:stUp .5s ease-out both}
+body.arrive #view>*:nth-child(2){animation-delay:.06s}
+body.arrive #view>*:nth-child(3){animation-delay:.12s}
+body.arrive #view .ul>*{animation:stUp .5s ease-out both}
+body.arrive #view .ul>*:nth-child(1){animation-delay:.14s}
+body.arrive #view .ul>*:nth-child(2){animation-delay:.22s}
+body.arrive #view .ul>*:nth-child(3){animation-delay:.30s}
+body.arrive #view .ul>*:nth-child(n+4){animation-delay:.36s}
+body.arrive #tbRight{animation:stIn .5s ease-out both}
+@media (prefers-reduced-motion: reduce){#start *,body.arrive *{animation:none!important;transition:none!important}}
 </style>
 </head>
 <body>
@@ -131,13 +181,39 @@ header{position:sticky;top:0;background:#fff;z-index:5;margin:0 -18px;padding:ca
 </div>
 <input type="file" id="camIn" accept="image/*" capture="environment" hidden>
 <input type="file" id="libIn" accept="image/*" hidden>
+<div id="start" class="on">
+  <div class="st-brand">
+    <img class="st-lh" src="letterhead.png" alt="Donato Plumbing Group Inc.">
+    <div class="st-dbl"></div>
+    <div class="st-ttl">PLUMBING FINISHES</div>
+    <div class="st-addr">1011 1st AVE</div>
+    <div class="st-flr">FLOORS 11 · 12 · 13</div>
+  </div>
+  <div class="st-bottom">
+    <div class="st-choices">
+      <button class="st-btn" id="stEditor" type="button">Editor sign in</button>
+      <button class="st-btn alt" id="stGuest" type="button">Guest sign in</button>
+      <div class="st-note">Guests can view everything but can’t make changes.</div>
+    </div>
+    <form id="stForm" novalidate>
+      <div class="st-ftitle" id="stFtitle">Editor sign in</div>
+      <div id="stNotice"></div>
+      <label for="stEm">Email</label><input id="stEm" type="email" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="you@company.com">
+      <label for="stPw">Password</label><input id="stPw" type="password" autocomplete="current-password" placeholder="Password">
+      <button class="st-btn" id="stGo" type="submit"><span class="spin"></span><span class="lbl">Sign in</span></button>
+      <div class="st-err" id="stErr"></div>
+      <button type="button" class="st-link" id="stMode">First time? Create your password</button>
+      <button type="button" class="st-link" id="stAsGuest">Continue as guest instead</button>
+    </form>
+  </div>
+</div>
 <div id="sheetWrap"></div>
 <div id="busy"><div class="card"><div class="spin"></div><div class="bmsg">Working…</div></div></div>
 <div id="toast"></div>
 <div id="a2hs"><span>To add this app to your home screen, tap <b>Share</b> then <b>Add to Home Screen</b>.</span><button>OK</button></div>
-<script src="units.js?v=4"></script>
-<script src="sb.js?v=4"></script>
-<script src="pdf.js?v=4"></script>
-<script src="app.js?v=4"></script>
+<script src="units.js?v=5"></script>
+<script src="sb.js?v=5"></script>
+<script src="pdf.js?v=5"></script>
+<script src="app.js?v=5"></script>
 </body>
 </html>
