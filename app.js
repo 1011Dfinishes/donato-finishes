@@ -2,7 +2,7 @@
 'use strict';
 
 const ADDRESS = '1011 1 AVE';
-const APP_URL = 'https://fushekrujetown.github.io/donato-finishes/';
+const APP_URL = 'https://1011dfinishes.github.io/donato-finishes/';
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const UNIT_NUMS = Object.keys(UNITS).map(Number).sort((a, b) => a - b);
 const FLOORS = [11, 12, 13];
@@ -238,9 +238,9 @@ async function addPhoto(f, u, it) {
 }
 
 function viewPhoto(f, u, it, row) {
-  const d = new Date(row.taken_at);
+  const when = row.taken_at ? 'taken ' + fmtStamp(new Date(row.taken_at)) : 'from your PDF';
   openSheet('<div class="pv-wrap"><img src="' + sb.publicUrl(row.path) + '" alt=""></div>' +
-    '<div class="pv-cap">' + esc(it.caption) + '</div><div class="pv-meta">Floor ' + f + ', Unit ' + u + ' · taken ' + esc(fmtStamp(d)) + '</div>' +
+    '<div class="pv-cap">' + esc(it.caption) + '</div><div class="pv-meta">Floor ' + f + ', Unit ' + u + ' · ' + esc(when) + '</div>' +
     (S.editor ? '<button class="sh-btn" id="rep">Replace photo</button><button class="sh-btn danger" id="del">Delete photo</button>' : '') +
     '<button class="sh-btn cancel" id="cls">Close</button>', (el, close) => {
     $('#cls', el).onclick = close;
