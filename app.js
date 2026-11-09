@@ -5,7 +5,8 @@ const ADDRESS = '1011 1 AVE';
 const APP_URL = 'https://1011dfinishes.github.io/donato-finishes/';
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const UNIT_NUMS = Object.keys(UNITS).map(Number).sort((a, b) => a - b);
-const FLOORS = [11, 12, 13];
+const FLOORS = [11, 12, 13];                                              // floors that can be opened
+const ALL_FLOORS = Array.from({ length: 21 }, (_, i) => i + 1);          // every floor in the building
 
 const sb = new Supa(SB_URL, SB_KEY);
 const S = { photos: {}, sigs: {}, project: { project_location: '' }, editor: false, loaded: false, live: false, pending: {} };
@@ -156,14 +157,21 @@ function renderHome() {
   let h = modeBar();
   h += '<div class="flds"><div class="fld"><b>Project / Location:</b>' +
     (S.editor ? '<input class="fin" data-k="project_location" value="' + esc(pr.project_location) + '" autocomplete="off">' : '<span class="fv">' + esc(pr.project_location) + '</span>') + '</div></div>';
+  h += '<div class="sh"><i class="dot on"></i>AVAILABLE</div>';
   h += '<div class="ul">' + FLOORS.map(f => {
     const st = floorStats(f);
     return '<a class="uc fc" href="#/f/' + f + '"><div class="urw"><span>Floor ' + f + '</span>' + statusPill(st.done, st.signed === UNIT_NUMS.length, true) + '</div>' +
       '<div class="bar"><i style="width:' + (100 * st.done / st.total).toFixed(1) + '%"></i></div>' +
       '<div class="mt">' + st.done + ' of ' + st.total + ' photos · ' + st.signed + ' of ' + UNIT_NUMS.length + ' units signed</div></a>';
   }).join('') + '</div>';
+  h += '<div class="sh"><i class="dot off"></i>NOT AVAILABLE</div>';
+  h += '<div class="ul">' + ALL_FLOORS.filter(f => !FLOORS.includes(f)).map(f =>
+    '<div class="uc na" aria-disabled="true"><span>Floor ' + f + '</span><span class="nat">Not available</span></div>').join('') + '</div>';
   $('#view').innerHTML = h;
   bindModeBar();
+  document.querySelectorAll('.uc.na').forEach(el => el.onclick = () => {      // grey floors don't open, they just give a small shake
+    el.classList.remove('shake'); void el.offsetWidth; el.classList.add('shake');
+  });
   document.querySelectorAll('.fin').forEach(inp => {
     inp.onchange = async () => {
       const patch = {}; patch[inp.dataset.k] = inp.value.trim(); patch.updated_at = new Date().toISOString();
