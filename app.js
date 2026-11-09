@@ -9,11 +9,21 @@ const FLOORS = [11, 12, 13];                                              // flo
 const ALL_FLOORS = Array.from({ length: 21 }, (_, i) => i + 1);          // every floor in the building
 
 const sb = new Supa(SB_URL, SB_KEY);
+
+// the back button row sticks just under the header, so it can be reached without scrolling up
+(() => {
+  const hdr = document.querySelector('header');
+  const setH = () => document.documentElement.style.setProperty('--hh', hdr.offsetHeight + 'px');
+  if (window.ResizeObserver) new ResizeObserver(setH).observe(hdr);
+  window.addEventListener('resize', setH); setH();
+  window.addEventListener('scroll', () => document.body.classList.toggle('scrolled', window.scrollY > 6), { passive: true });
+})();
 const S = { photos: {}, sigs: {}, project: { project_location: '' }, editor: false, loaded: false, live: false, pending: {} };
 const $ = (s, r = document) => r.querySelector(s);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const pkey = (f, u, k) => f + '|' + u + '|' + k;
 const thumbOf = path => path.replace(/\.jpg$/, '_t.jpg');
+const BACK = '<svg width="8" height="13" viewBox="0 0 8 13" aria-hidden="true"><path d="M6.4 1.4 1.4 6.5l5 5.1" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const medOf = path => path.replace(/\.jpg$/, '_m.jpg');
 const sizesOf = path => [path, thumbOf(path), medOf(path)];
 const slug = s => s.toLowerCase().replace(/#/g, '-').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -183,7 +193,7 @@ function renderHome() {
 
 function renderFloor(f) {
   const fs = floorStats(f);
-  let h = '<div class="srow"><a class="bk" href="#/">‹ All floors</a><span>' + fs.signed + ' of ' + UNIT_NUMS.length + ' units signed</span></div>';
+  let h = '<div class="srow"><a class="bk" href="#/">' + BACK + 'All floors</a><span>' + fs.signed + ' of ' + UNIT_NUMS.length + ' units signed</span></div>';
   h += '<div class="ul">' + UNIT_NUMS.map(u => {
     const st = unitStats(f, u);
     return '<a class="uc" href="#/f/' + f + '/u/' + u + '"><div class="urw"><span>Unit ' + u + '</span>' + statusPill(st.done, st.signed, true) + '</div>' +
@@ -201,7 +211,7 @@ const CHK = '<svg width="12" height="12" viewBox="0 0 12 12"><path d="M2.2 6.3l2
 
 function renderUnit(f, u) {
   const items = itemsFor(u), st = unitStats(f, u);
-  let h = '<div class="srow"><a class="bk" href="#/f/' + f + '">‹ Floor ' + f + '</a><span class="' + (st.done === st.total ? 'okc' : '') + '">' + st.done + ' of ' + st.total + ' photos' + (st.done === st.total ? ' ✓' : '') + '</span></div>';
+  let h = '<div class="srow"><a class="bk" href="#/f/' + f + '">' + BACK + 'Floor ' + f + '</a><span class="' + (st.done === st.total ? 'okc' : '') + '">' + st.done + ' of ' + st.total + ' photos' + (st.done === st.total ? ' ✓' : '') + '</span></div>';
   h += '<div class="grid">' + items.map((it, i) => {
     const k = pkey(f, u, it.key), row = S.photos[k], pend = S.pending[k];
     let inner;
@@ -440,7 +450,7 @@ async function flushQueue() {
 // ---------------------------------------------------------------- signatures
 function renderSign(f, u) {
   const st = unitStats(f, u);
-  let h = '<div class="srow"><a class="bk" href="#/f/' + f + '/u/' + u + '">‹ Back to photos</a><span class="' + (st.done === st.total ? 'okc' : '') + '">' + st.done + ' of ' + st.total + ' photos' + (st.done === st.total ? ' ✓' : '') + '</span></div>';
+  let h = '<div class="srow"><a class="bk" href="#/f/' + f + '/u/' + u + '">' + BACK + 'Back to photos</a><span class="' + (st.done === st.total ? 'okc' : '') + '">' + st.done + ' of ' + st.total + ' photos' + (st.done === st.total ? ' ✓' : '') + '</span></div>';
   h += '<div class="sec">SIGNATURES</div>';
   const rk = f + '-' + u;
   const editing = S.editor && (S.redo === rk || !(S.sigs[pkey(f, u, 'donato')] && S.sigs[pkey(f, u, 'ccm')]));
