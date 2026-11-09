@@ -130,8 +130,8 @@ window.addEventListener('hashchange', () => { render(); window.scrollTo(0, 0); }
 function render() {
   const r = route();
   if (r.view === 'home') {
-    const signed = FLOORS.reduce((t, f) => t + floorStats(f).signed, 0);
-    $('#tbRight').innerHTML = '<span class="tb-sub">' + signed + ' of ' + FLOORS.length * UNIT_NUMS.length + ' units signed</span>';
+    const signed = FLOORS.filter(f => floorStats(f).signed === UNIT_NUMS.length).length;     // a floor is signed when all its units are
+    $('#tbRight').innerHTML = '<span class="tb-sub">' + signed + ' of ' + FLOORS.length + ' floors signed</span>';
   } else $('#tbRight').textContent = r.view === 'floor' ? 'FLOOR ' + r.floor : 'UNIT ' + r.unit;
   if (!S.loaded) return;
   if (r.view === 'home') renderHome();
