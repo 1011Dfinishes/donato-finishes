@@ -4,8 +4,13 @@
 const ADDRESS = '1011 1 AVE';
 const APP_URL = 'https://1011dfinishes.github.io/donato-finishes/';
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const UNIT_NUMS = Object.keys(UNITS).map(Number).sort((a, b) => a - b);
-const FLOORS = [11, 12, 13];                                              // floors that can be opened
+const FLOORS = [11, 12, 13];                                              // floors everyone can open
+const UPPER = [14, 15, 16, 17, 18, 19, 20, 21];                           // editors can open these; everyone sees one once it has a photo
+const unitsOf = f => f >= 14 ? UNITS_B : UNITS;                            // floors 14-21 have their own 15 units
+const unitNums = f => Object.keys(unitsOf(f)).map(Number).sort((a, b) => a - b);
+const hasPhotos = f => Object.values(S.photos).some(p => p.floor === f);
+const isAvailable = f => FLOORS.includes(f) || (UPPER.includes(f) && hasPhotos(f));
+const canOpen = f => isAvailable(f) || (UPPER.includes(f) && S.editor);
 const ALL_FLOORS = Array.from({ length: 21 }, (_, i) => i + 1);          // every floor in the building
 
 const sb = new Supa(SB_URL, SB_KEY);
@@ -38,16 +43,16 @@ function fmtISODay(s) { if (!s) return ''; const [y, m, d] = s.split('-').map(Nu
 function todayISO() { const d = new Date(); return d.getFullYear() + '-' + two(d.getMonth() + 1) + '-' + two(d.getDate()); }
 function localInput(d) { return d.getFullYear() + '-' + two(d.getMonth() + 1) + '-' + two(d.getDate()) + 'T' + two(d.getHours()) + ':' + two(d.getMinutes()); }
 
-function itemsFor(u) {
+function itemsFor(f, u) {
   const seen = {};
-  return UNITS[u].map(caption => {
+  return unitsOf(f)[u].map(caption => {
     seen[caption] = (seen[caption] || 0) + 1;
     return { caption, key: seen[caption] > 1 ? caption + '#' + seen[caption] : caption };
   });
 }
 
 function unitStats(f, u) {
-  const items = itemsFor(u);
+  const items = itemsFor(f, u);
   const done = items.filter(it => S.photos[pkey(f, u, it.key)]).length;
   const signed = !!(S.sigs[pkey(f, u, 'donato')] && S.sigs[pkey(f, u, 'ccm')]);
   return { total: items.length, done, signed };
@@ -55,7 +60,7 @@ function unitStats(f, u) {
 
 function floorStats(f) {
   let total = 0, done = 0, signed = 0;
-  UNIT_NUMS.forEach(u => { const s = unitStats(f, u); total += s.total; done += s.done; signed += s.signed ? 1 : 0; });
+  unitNums(f).forEach(u => { const s = unitStats(f, u); total += s.total; done += s.done; signed += s.signed ? 1 : 0; });
   return { total, done, signed };
 }
 
@@ -129,8 +134,8 @@ async function checkEditor() {
 // ---------------------------------------------------------------- routing
 function route() {
   const m = location.hash.match(/^#\/f\/(\d+)(?:\/u\/(\d+)(\/sign)?)?/);
-  if (m && FLOORS.includes(+m[1])) {
-    if (m[2] && UNITS[m[2]]) return { view: m[3] ? 'sign' : 'unit', floor: +m[1], unit: +m[2] };
+  if (m && canOpen(+m[1])) {
+    if (m[2] && unitsOf(+m[1])[m[2]]) return { view: m[3] ? 'sign' : 'unit', floor: +m[1], unit: +m[2] };
     return { view: 'floor', floor: +m[1] };
   }
   return { view: 'home' };
@@ -140,8 +145,9 @@ window.addEventListener('hashchange', () => { render(); window.scrollTo(0, 0); }
 function render() {
   const r = route();
   if (r.view === 'home') {
-    const signed = FLOORS.filter(f => floorStats(f).signed === UNIT_NUMS.length).length;     // a floor is signed when all its units are
-    $('#tbRight').innerHTML = '<span class="tb-sub">' + signed + ' of ' + FLOORS.length + ' floors signed</span>';
+    const av = ALL_FLOORS.filter(isAvailable);
+    const signed = av.filter(f => floorStats(f).signed === unitNums(f).length).length;     // a floor is signed when all its units are
+    $('#tbRight').innerHTML = '<span class="tb-sub">' + signed + ' of ' + av.length + ' floors signed</span>';
   } else $('#tbRight').textContent = r.view === 'floor' ? 'FLOOR ' + r.floor : 'UNIT ' + r.unit;
   if (!S.loaded) return;
   if (r.view === 'home') renderHome();
@@ -168,18 +174,19 @@ function renderHome() {
   h += '<div class="flds"><div class="fld"><b>Project / Location:</b>' +
     (S.editor ? '<input class="fin" data-k="project_location" value="' + esc(pr.project_location) + '" autocomplete="off">' : '<span class="fv">' + esc(pr.project_location) + '</span>') + '</div></div>';
   h += '<div class="sh"><i class="dot on"></i>AVAILABLE</div>';
-  h += '<div class="ul">' + FLOORS.map(f => {
-    const st = floorStats(f);
-    return '<a class="uc fc" href="#/f/' + f + '"><div class="urw"><span>Floor ' + f + '</span>' + statusPill(st.done, st.signed === UNIT_NUMS.length, true) + '</div>' +
+  h += '<div class="ul">' + ALL_FLOORS.filter(isAvailable).map(f => {
+    const st = floorStats(f), n = unitNums(f).length;
+    return '<a class="uc fc" href="#/f/' + f + '"><div class="urw"><span>Floor ' + f + '</span>' + statusPill(st.done, st.signed === n, true) + '</div>' +
       '<div class="bar"><i style="width:' + (100 * st.done / st.total).toFixed(1) + '%"></i></div>' +
-      '<div class="mt">' + st.done + ' of ' + st.total + ' photos · ' + st.signed + ' of ' + UNIT_NUMS.length + ' units signed</div></a>';
+      '<div class="mt">' + st.done + ' of ' + st.total + ' photos · ' + st.signed + ' of ' + n + ' units signed</div></a>';
   }).join('') + '</div>';
   h += '<div class="sh"><i class="dot off"></i>NOT AVAILABLE</div>';
-  h += '<div class="ul">' + ALL_FLOORS.filter(f => !FLOORS.includes(f)).map(f =>
-    '<div class="uc na" aria-disabled="true"><span>Floor ' + f + '</span><span class="nat">Not available</span></div>').join('') + '</div>';
+  h += '<div class="ul">' + ALL_FLOORS.filter(f => !isAvailable(f)).map(f => canOpen(f)
+    ? '<a class="uc na ed" href="#/f/' + f + '"><span>Floor ' + f + '</span><span class="nat">Editors only · add photos ›</span></a>'     // editors: open it and add the first photo
+    : '<div class="uc na" aria-disabled="true"><span>Floor ' + f + '</span><span class="nat">Not available</span></div>').join('') + '</div>';
   $('#view').innerHTML = h;
   bindModeBar();
-  document.querySelectorAll('.uc.na').forEach(el => el.onclick = () => {      // grey floors don't open, they just give a small shake
+  document.querySelectorAll('div.uc.na').forEach(el => el.onclick = () => {      // grey floors don't open, they just give a small shake
     el.classList.remove('shake'); void el.offsetWidth; el.classList.add('shake');
   });
   document.querySelectorAll('.fin').forEach(inp => {
@@ -193,8 +200,9 @@ function renderHome() {
 
 function renderFloor(f) {
   const fs = floorStats(f);
-  let h = '<div class="srow"><a class="bk" href="#/">' + BACK + 'All floors</a><span>' + fs.signed + ' of ' + UNIT_NUMS.length + ' units signed</span></div>';
-  h += '<div class="ul">' + UNIT_NUMS.map(u => {
+  let h = '<div class="srow"><a class="bk" href="#/">' + BACK + 'All floors</a><span>' + fs.signed + ' of ' + unitNums(f).length + ' units signed</span></div>';
+  if (!isAvailable(f)) h += '<div class="edn">Only editors can see this floor. It shows for everyone once it has a photo.</div>';
+  h += '<div class="ul">' + unitNums(f).map(u => {
     const st = unitStats(f, u);
     return '<a class="uc" href="#/f/' + f + '/u/' + u + '"><div class="urw"><span>Unit ' + u + '</span>' + statusPill(st.done, st.signed, true) + '</div>' +
       '<div class="bar"><i style="width:' + (100 * st.done / st.total).toFixed(1) + '%"></i></div>' +
@@ -210,7 +218,7 @@ const CAM_SVG = '<svg width="34" height="27" viewBox="0 0 38 30"><path d="M4 7h7
 const CHK = '<svg width="12" height="12" viewBox="0 0 12 12"><path d="M2.2 6.3l2.4 2.4 5.2-5.4" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
 function renderUnit(f, u) {
-  const items = itemsFor(u), st = unitStats(f, u);
+  const items = itemsFor(f, u), st = unitStats(f, u);
   let h = '<div class="srow"><a class="bk" href="#/f/' + f + '">' + BACK + 'Floor ' + f + '</a><span class="' + (st.done === st.total ? 'okc' : '') + '">' + st.done + ' of ' + st.total + ' photos' + (st.done === st.total ? ' ✓' : '') + '</span></div>';
   h += '<div class="grid">' + items.map((it, i) => {
     const k = pkey(f, u, it.key), row = S.photos[k], pend = S.pending[k];
@@ -572,7 +580,7 @@ async function photoJpeg(row) {
 }
 
 async function unitData(f, u, progress) {
-  const items = itemsFor(u), photos = [];
+  const items = itemsFor(f, u), photos = [];
   for (let i = 0; i < items.length; i++) {
     const row = S.photos[pkey(f, u, items[i].key)];
     photos.push(row ? await photoJpeg(row) : null);
@@ -605,7 +613,7 @@ async function exportUnit(f, u) {
   try {
     busy('Building PDF…');
     const lh = new Uint8Array(await (await fetchBytes('letterhead.jpg')).arrayBuffer());
-    const n = itemsFor(u).length; let k = 0;
+    const n = itemsFor(f, u).length; let k = 0;
     const data = await unitData(f, u, () => busy('Building PDF… ' + (++k) + ' of ' + n));
     const bytes = buildUnitPdf(data, lh, 'Plumbing Finishes - Floor ' + f + ', Unit ' + u);
     busy(false);
@@ -621,7 +629,7 @@ async function exportFloor(f) {
     busy('Building PDF…');
     const lh = new Uint8Array(await (await fetchBytes('letterhead.jpg')).arrayBuffer());
     const total = floorStats(f).total; let k = 0;
-    const units = UNIT_NUMS.map(u => ({ unit: u, items: itemsFor(u) }));
+    const units = unitNums(f).map(u => ({ unit: u, items: itemsFor(f, u) }));
     const bytes = await buildFloorPdf({ floor: f, project: S.project.project_location || '', units }, lh,
       'Plumbing Finishes - Floor ' + f, i => unitData(f, units[i].unit, () => busy('Building PDF… photo ' + (++k) + ' of ' + total)));
     busy(false);
