@@ -77,11 +77,37 @@ function toast(msg, ms = 2600) {
   clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('on'), ms);
 }
 
+// iOS 26 can put fixed things in the wrong place after the keyboard has been open (for example after signing in),
+// so a sheet or the busy card was opening above the screen. Place them where the user is looking instead.
+function placeOverlay(el) {
+  const vv = window.visualViewport;
+  if (!vv) return;
+  Object.assign(el.style, { position: 'absolute', right: 'auto', bottom: 'auto', left: vv.pageLeft + 'px', top: vv.pageTop + 'px', width: vv.width + 'px', height: vv.height + 'px' });
+  const sh = el.querySelector('.sheet');
+  if (sh) sh.style.maxHeight = Math.round(vv.height * 0.92) + 'px';
+}
+if (window.visualViewport) {
+  const replace = () => ['#sheetWrap.on', '#busy.on'].forEach(s => { const el = $(s); if (el) placeOverlay(el); });
+  visualViewport.addEventListener('resize', replace);
+  visualViewport.addEventListener('scroll', replace);
+  // when the keyboard closes, nudge the page so iOS puts the header and back button back where they belong
+  let vvh = visualViewport.height;
+  visualViewport.addEventListener('resize', () => {
+    const h = visualViewport.height, closed = h > vvh + 100; vvh = h;
+    if (closed && !/^(INPUT|TEXTAREA|SELECT)$/.test((document.activeElement || {}).tagName || '')) {
+      setTimeout(() => { const y = window.scrollY; window.scrollTo(0, y + 1); window.scrollTo(0, y); }, 60);
+    }
+  });
+}
+
 function openSheet(html, onMount) {
   const wrap = $('#sheetWrap');
   wrap.innerHTML = '<div class="dim"></div><div class="sheet">' + html + '</div>';
   wrap.classList.add('on');
-  const close = () => { wrap.classList.remove('on'); wrap.innerHTML = ''; };
+  placeOverlay(wrap);
+  document.documentElement.classList.add('lock');                       // the page behind stays still while the sheet is open
+  $('.dim', wrap).addEventListener('touchmove', e => e.preventDefault(), { passive: false });
+  const close = () => { wrap.classList.remove('on'); wrap.innerHTML = ''; document.documentElement.classList.remove('lock'); };
   $('.dim', wrap).onclick = close;
   if (onMount) onMount($('.sheet', wrap), close);
   return close;
@@ -103,14 +129,25 @@ function busy(msg) {
   if (msg === false) { b.classList.remove('on'); return; }
   b.querySelector('.bmsg').textContent = msg;
   b.classList.add('on');
+  placeOverlay(b);
 }
 
 // ---------------------------------------------------------------- data
+// the server sends at most 1,000 rows at a time, so keep asking until everything is here
+async function selectAll(table, query, order) {
+  const out = [];
+  for (let off = 0; ;) {
+    const rows = await sb.select(table, query + '&order=' + order + '&limit=1000&offset=' + off);
+    if (!rows || !rows.length) return out;
+    out.push(...rows); off += rows.length;
+  }
+}
+
 async function loadAll() {
   try {
     const [photos, sigs, proj] = await Promise.all([
-      sb.select('photos', 'select=floor,unit,item_key,caption,path,taken_at,created_at&limit=5000'),
-      sb.select('signatures', 'select=floor,unit,role,print_name,signed_on,path,created_at'),
+      selectAll('photos', 'select=floor,unit,item_key,caption,path,taken_at,created_at', 'floor,unit,item_key'),
+      selectAll('signatures', 'select=floor,unit,role,print_name,signed_on,path,created_at', 'floor,unit,role'),
       sb.select('project', 'select=project_location&id=eq.1')
     ]);
     S.photos = {}; photos.forEach(p => { S.photos[pkey(p.floor, p.unit, p.item_key)] = p; });

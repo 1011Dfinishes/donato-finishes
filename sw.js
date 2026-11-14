@@ -1,6 +1,6 @@
 // App files: network first (so updates show up), cached copy when offline.
 // Photos: cached after the first view (each photo has its own file name, so they never change).
-const SHELL = 'df-shell-v8', PHOTOS = 'df-photos-v1';
+const SHELL = 'df-shell-v9', PHOTOS = 'df-photos-v1';
 const FILES = ['./', 'index.html', 'app.js', 'sb.js', 'pdf.js', 'units.js', 'letterhead.png', 'letterhead.jpg', 'icon-180.png', 'icon-192.png', 'manifest.webmanifest'];
 
 self.addEventListener('install', e => {
